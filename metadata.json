@@ -1,0 +1,5 @@
+{
+  "name": "EMCOR Price Tag Generator",
+  "description": "Generate A4-sized price tags from Excel data, featuring two tags per sheet.",
+  "requestFramePermissions": []
+}
