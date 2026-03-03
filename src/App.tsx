@@ -938,7 +938,7 @@ export default function App() {
                       <span className="text-[10px] font-bold text-zinc-900">{selectedField.fontSize}px</span>
                     </div>
                     <input 
-                      type="range" min="8" max="150" value={selectedField.fontSize}
+                      type="range" min="8" max="300" value={selectedField.fontSize}
                       onChange={(e) => updateField(selectedField.id, { fontSize: parseInt(e.target.value) })}
                       className="w-full h-1 bg-zinc-100 rounded-lg appearance-none cursor-pointer accent-emerald-500"
                     />
