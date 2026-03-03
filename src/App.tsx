@@ -5,7 +5,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import * as XLSX from 'xlsx';
-import { Upload, Printer, FileSpreadsheet, Trash2, Plus, Download, Image as ImageIcon, Settings2, Move, Check, Type, Search, FileText } from 'lucide-react';
+import { Upload, Printer, FileSpreadsheet, Trash2, Plus, Download, Image as ImageIcon, Settings2, Move, Check, Type, Search, FileText, AlignLeft, AlignCenter, AlignRight, X, Minus, Square, Maximize2 } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import Draggable from 'react-draggable';
@@ -29,6 +29,8 @@ interface FieldConfig {
   width: number;
   textAlign: 'left' | 'center' | 'right';
   mapping?: string;
+  vOffset?: number;
+  formatAsNumber?: boolean;
 }
 
 interface PriceTagData {
@@ -39,12 +41,19 @@ interface PriceTagData {
 
 const INITIAL_FIELDS: FieldConfig[] = [];
 
+const PAPER_DIMENSIONS = {
+  'A4': { width: 794, height: 1122, label: 'A4 (210 x 297mm)' },
+  'Letter': { width: 816, height: 1056, label: 'Letter (8.5 x 11in)' },
+  'Legal': { width: 816, height: 1344, label: 'Legal (8.5 x 14in)' }
+};
+
 interface DraggableFieldProps {
   field: FieldConfig;
   selectedFieldId: string | null;
   setSelectedFieldId: (id: string | null) => void;
   updateField: (id: string, updates: Partial<FieldConfig>) => void;
   previewTag: PriceTagData | undefined;
+  updateTagData: (tagId: string, key: string, value: string) => void;
 }
 
 const DraggableField: React.FC<DraggableFieldProps> = ({ 
@@ -52,9 +61,12 @@ const DraggableField: React.FC<DraggableFieldProps> = ({
   selectedFieldId, 
   setSelectedFieldId, 
   updateField, 
-  previewTag 
+  previewTag,
+  updateTagData
 }) => {
   const nodeRef = useRef(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const [isEditing, setIsEditing] = useState(false);
   
   const getFieldValue = () => {
     let rawValue = '';
@@ -64,10 +76,34 @@ const DraggableField: React.FC<DraggableFieldProps> = ({
       return field.label;
     }
 
-    if (field.label.toLowerCase().includes('srp')) return formatCurrency(rawValue);
-    if (field.label.toLowerCase().includes('downpayment')) return formatNumber(rawValue);
+    const labelLower = field.label.toLowerCase();
+    const shouldFormat = field.formatAsNumber || 
+                        labelLower.includes('srp') || 
+                        labelLower.includes('down') || 
+                        labelLower.includes('price') || 
+                        labelLower.includes('amount') ||
+                        labelLower.includes('cash') ||
+                        labelLower.includes('total') ||
+                        labelLower.includes('monthly');
+
+    if (shouldFormat) {
+      if (labelLower.includes('srp')) return formatCurrency(rawValue);
+      return formatNumber(rawValue);
+    }
+    
     return rawValue;
   };
+
+  const currentRawValue = field.mapping && previewTag?.rawData 
+    ? String(previewTag.rawData[field.mapping] || '') 
+    : field.label;
+
+  useEffect(() => {
+    if (isEditing && inputRef.current) {
+      inputRef.current.focus();
+      inputRef.current.select();
+    }
+  }, [isEditing]);
 
   return (
     <Draggable
@@ -96,6 +132,7 @@ const DraggableField: React.FC<DraggableFieldProps> = ({
           )}>
             <Move size={10} /> 
             <span className="font-bold uppercase tracking-wider">{field.label}</span>
+            {selectedFieldId === field.id && <span className="ml-2 opacity-70 font-normal normal-case italic">Double-click text to edit data</span>}
           </div>
           
           <div className={cn(
@@ -106,14 +143,55 @@ const DraggableField: React.FC<DraggableFieldProps> = ({
           <div 
             style={{ 
               fontSize: `${field.fontSize}px`, 
-              lineHeight: field.lineHeight,
+              lineHeight: field.lineHeight || 1,
               color: field.color, 
               fontWeight: field.fontWeight,
               textAlign: field.textAlign,
+              transform: `translateY(${field.vOffset || 0}px)`,
             }}
-            className="whitespace-pre-wrap break-words select-none p-1"
+            className={cn(
+              "whitespace-pre-wrap break-words p-0 transition-all",
+              isEditing ? "select-text" : "select-none cursor-text"
+            )}
+            onDoubleClick={(e) => {
+              e.stopPropagation();
+              setIsEditing(true);
+            }}
           >
-            {getFieldValue()}
+            {isEditing ? (
+              <textarea
+                ref={inputRef}
+                value={currentRawValue}
+                onChange={(e) => {
+                  if (field.mapping && previewTag) {
+                    updateTagData(previewTag.id, field.mapping, e.target.value);
+                  } else {
+                    updateField(field.id, { label: e.target.value });
+                  }
+                }}
+                onBlur={() => setIsEditing(false)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    setIsEditing(false);
+                  }
+                  if (e.key === 'Escape') {
+                    setIsEditing(false);
+                  }
+                }}
+                className="w-full bg-white/95 border-2 border-emerald-500 rounded-lg p-1 outline-none text-zinc-900 shadow-2xl z-50 relative"
+                style={{ 
+                  fontSize: 'inherit', 
+                  fontWeight: 'inherit', 
+                  textAlign: 'inherit',
+                  lineHeight: 'inherit',
+                  minHeight: '1.2em',
+                  color: '#000'
+                }}
+              />
+            ) : (
+              getFieldValue()
+            )}
           </div>
         </div>
       </div>
@@ -135,7 +213,9 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [isDownloading, setIsDownloading] = useState(false);
   const [printLayout, setPrintLayout] = useState<'2-in-1' | '4-in-1' | '6-in-1'>('2-in-1');
+  const [paperSize, setPaperSize] = useState<'A4' | 'Letter' | 'Legal'>('A4');
   const [previewZoom, setPreviewZoom] = useState(0.6);
+  const [searchColumn, setSearchColumn] = useState<string>('');
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   const templateInputRef = useRef<HTMLInputElement>(null);
@@ -223,6 +303,13 @@ export default function App() {
       if (jsonData.length > 0) {
         const columns = Object.keys(jsonData[0]);
         setExcelColumns(columns);
+        
+        // Set default search column
+        const defaultCol = columns.find(col => 
+          col.toLowerCase() === 'item model' || 
+          col.toLowerCase().includes('model')
+        ) || columns[0] || '';
+        setSearchColumn(defaultCol);
       }
 
       const newTags: PriceTagData[] = jsonData.map((row) => ({
@@ -247,7 +334,7 @@ export default function App() {
       x: 100,
       y: 100,
       fontSize: 18,
-      lineHeight: 1.2,
+      lineHeight: 1,
       rotation: 0,
       color: '#18181b',
       fontWeight: '700',
@@ -290,6 +377,14 @@ export default function App() {
       }
       return f;
     }));
+  };
+
+  const updateTagData = (tagId: string, key: string, value: string) => {
+    setTags(prev => prev.map(tag => 
+      tag.id === tagId 
+        ? { ...tag, rawData: { ...tag.rawData, [key]: value } }
+        : tag
+    ));
   };
 
   const toggleTagSelection = (id: string) => {
@@ -341,15 +436,32 @@ export default function App() {
 
     setIsDownloading(true);
     
+    // Store original zoom to restore later
+    const originalZoom = previewZoom;
+    // Reset zoom to 1 for accurate capture
+    setPreviewZoom(1);
+    
+    // Wait for React to re-render and for any layout shifts to settle
+    await new Promise(resolve => setTimeout(resolve, 500));
+    
     try {
       // Scroll to top to ensure html2canvas captures correctly
       window.scrollTo(0, 0);
       
       // Determine PDF orientation and dimensions
       const isLandscape = printLayout === '2-in-1';
-      const pdf = new jsPDF(isLandscape ? 'l' : 'p', 'mm', 'a4');
-      const pageWidth = isLandscape ? 297 : 210;
-      const pageHeight = isLandscape ? 210 : 297;
+      const pdfSize = paperSize.toLowerCase() as any;
+      const pdf = new jsPDF(isLandscape ? 'l' : 'p', 'mm', pdfSize);
+      
+      const mmDimensions = {
+        'A4': { w: 210, h: 297 },
+        'Letter': { w: 215.9, h: 279.4 },
+        'Legal': { w: 215.9, h: 355.6 }
+      };
+      
+      const currentMM = mmDimensions[paperSize];
+      const pageWidth = isLandscape ? currentMM.h : currentMM.w;
+      const pageHeight = isLandscape ? currentMM.w : currentMM.h;
       
       const pageElements = document.querySelectorAll('.print-page-container');
       
@@ -357,26 +469,29 @@ export default function App() {
         throw new Error("No preview pages found.");
       }
 
+      const dimensions = PAPER_DIMENSIONS[paperSize];
+      const canvasWidth = isLandscape ? dimensions.height : dimensions.width;
+      const canvasHeight = isLandscape ? dimensions.width : dimensions.height;
+
       for (let i = 0; i < pageElements.length; i++) {
-        if (i > 0) pdf.addPage();
+        if (i > 0) pdf.addPage(pdfSize, isLandscape ? 'l' : 'p');
 
         const element = pageElements[i] as HTMLElement;
         
-        // Wait a tiny bit for any layout shifts
-        await new Promise(resolve => setTimeout(resolve, 100));
-
         const canvas = await html2canvas(element, {
-          scale: 2, // High quality
+          scale: 3, // Even higher quality
           useCORS: true,
           logging: false,
           backgroundColor: '#ffffff',
           allowTaint: true,
           scrollX: 0,
           scrollY: 0,
+          windowWidth: canvasWidth,
+          windowHeight: canvasHeight
         });
         
-        const imgData = canvas.toDataURL('image/jpeg', 0.95);
-        pdf.addImage(imgData, 'JPEG', 0, 0, pageWidth, pageHeight, undefined, 'FAST');
+        const imgData = canvas.toDataURL('image/jpeg', 1.0);
+        pdf.addImage(imgData, 'JPEG', 0, 0, pageWidth, pageHeight, undefined, 'SLOW');
       }
 
       pdf.save(`EMCOR-Price-Tags-${new Date().getTime()}.pdf`);
@@ -384,34 +499,57 @@ export default function App() {
       console.error("PDF Generation Error:", error);
       alert("Failed to generate PDF. Please ensure you are in 'Preview' mode and try again.");
     } finally {
+      setPreviewZoom(originalZoom);
       setIsDownloading(false);
     }
   };
 
-  const modelColumn = excelColumns.find(col => 
-    col.toLowerCase() === 'item model' || 
-    col.toLowerCase().includes('model')
-  ) || excelColumns[0] || 'Item Model';
-
   const filteredTags = tags.filter(tag => {
     if (!searchQuery) return true;
     const searchLower = searchQuery.toLowerCase();
-    // Search only in the model column
-    const modelValue = String(tag.rawData[modelColumn] || '');
+    // Search only in the selected column
+    const modelValue = String(tag.rawData[searchColumn] || '');
     return modelValue.toLowerCase().includes(searchLower);
   });
 
   const selectedField = fieldConfigs.find(f => f.id === selectedFieldId);
 
   return (
-    <div className="min-h-screen bg-zinc-50 p-4 md:p-8 font-sans text-zinc-900">
-      {/* Header */}
-      <header className="max-w-6xl mx-auto mb-8 flex flex-col md:flex-row md:items-center justify-between gap-4 print:hidden">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight text-zinc-900">EMCOR Price Tag Generator</h1>
-          <p className="text-zinc-500 mt-1">Upload Excel data and customize your tag template.</p>
+    <div className="min-h-screen bg-[#121212] bg-[radial-gradient(circle_at_50%_50%,#2a2a2a_0%,#121212_100%)] p-4 md:p-8 font-sans text-zinc-900 flex items-center justify-center overflow-hidden print:bg-white print:p-0">
+      {/* Window Container */}
+      <div className="w-full max-w-7xl h-[90vh] bg-zinc-50 rounded-2xl shadow-2xl border border-white/10 flex flex-col overflow-hidden animate-in fade-in zoom-in duration-500 print:h-auto print:rounded-none print:shadow-none print:border-none print:block">
+        {/* Title Bar */}
+        <div className="h-12 bg-zinc-100 border-b border-zinc-200 flex items-center justify-between px-4 shrink-0 select-none print:hidden">
+          <div className="flex items-center gap-2">
+            <div className="flex gap-1.5">
+              <div className="w-3 h-3 rounded-full bg-[#ff5f57] border border-black/10 shadow-inner" />
+              <div className="w-3 h-3 rounded-full bg-[#febc2e] border border-black/10 shadow-inner" />
+              <div className="w-3 h-3 rounded-full bg-[#28c840] border border-black/10 shadow-inner" />
+            </div>
+            <div className="ml-4 flex items-center gap-2">
+              <FileSpreadsheet size={16} className="text-emerald-600" />
+              <span className="text-[10px] font-black text-zinc-500 uppercase tracking-[0.2em]">EMCOR Price Tag Generator v1.0</span>
+            </div>
+          </div>
+          <div className="flex items-center gap-4">
+             <div className="h-4 w-[1px] bg-zinc-300" />
+             <div className="flex items-center gap-3 text-zinc-400">
+               <Minus size={14} className="hover:text-zinc-600 transition-colors cursor-pointer" />
+               <Square size={12} className="hover:text-zinc-600 transition-colors cursor-pointer" />
+               <X size={14} className="hover:text-red-500 transition-colors cursor-pointer" />
+             </div>
+          </div>
         </div>
-        <div className="flex items-center gap-3">
+
+        {/* Window Content */}
+        <div className="flex-1 overflow-auto p-6 md:p-8 print:p-0 print:overflow-visible">
+          {/* Header */}
+          <header className="mb-8 flex flex-col md:flex-row md:items-center justify-between gap-4 print:hidden">
+            <div>
+              <h1 className="text-3xl font-bold tracking-tight text-zinc-900">EMCOR Price Tag Generator</h1>
+              <p className="text-zinc-500 mt-1">Upload Excel data and customize your tag template.</p>
+            </div>
+            <div className="flex items-center gap-3">
           <button
             onClick={() => templateInputRef.current?.click()}
             className="flex items-center gap-2 px-4 py-2 bg-white border border-zinc-200 rounded-lg hover:bg-zinc-50 transition-colors text-sm font-medium shadow-sm"
@@ -441,7 +579,7 @@ export default function App() {
       </header>
 
       {/* Controls */}
-      <div className="max-w-6xl mx-auto mb-6 flex flex-col gap-4 print:hidden">
+      <div className="mb-6 flex flex-col gap-4 print:hidden">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             {tags.length > 0 && (
@@ -508,7 +646,7 @@ export default function App() {
       </div>
 
       {/* Main Content Area */}
-      <main className="max-w-6xl mx-auto">
+      <main>
         {viewMode === 'list' ? (
           tags.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-20 border-2 border-dashed border-zinc-200 rounded-2xl bg-white print:hidden">
@@ -517,16 +655,30 @@ export default function App() {
             </div>
           ) : (
             <div className="space-y-4 print:hidden">
-              <div className="flex items-center justify-between gap-4">
-                <div className="relative flex-1 max-w-md">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" size={18} />
-                  <input
-                    type="text"
-                    placeholder="Search items..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="w-full pl-10 pr-4 py-2.5 bg-white border border-zinc-200 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all shadow-sm"
-                  />
+              <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-4">
+                <div className="flex flex-1 items-center gap-3 max-w-2xl">
+                  <div className="relative flex-1">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" size={18} />
+                    <input
+                      type="text"
+                      placeholder={`Search by ${searchColumn}...`}
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="w-full pl-10 pr-4 py-2.5 bg-white border border-zinc-200 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all shadow-sm"
+                    />
+                  </div>
+                  <div className="flex items-center gap-2 min-w-[200px]">
+                    <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest whitespace-nowrap">Search In:</span>
+                    <select 
+                      value={searchColumn}
+                      onChange={(e) => setSearchColumn(e.target.value)}
+                      className="flex-1 bg-white border border-zinc-200 rounded-xl px-3 py-2.5 text-sm font-medium text-zinc-900 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all cursor-pointer shadow-sm"
+                    >
+                      {excelColumns.map(col => (
+                        <option key={col} value={col}>{col}</option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
                 <div className="text-xs font-bold text-zinc-400 uppercase tracking-widest">
                   Showing {filteredTags.length} of {tags.length} items
@@ -552,7 +704,7 @@ export default function App() {
                           className="rounded border-zinc-300 text-emerald-600 focus:ring-emerald-500"
                         />
                       </th>
-                      <th className="px-6 py-3 font-semibold text-zinc-600">{modelColumn}</th>
+                      <th className="px-6 py-3 font-semibold text-zinc-600">{searchColumn}</th>
                       <th className="px-6 py-3 font-semibold text-zinc-600 text-right">Actions</th>
                     </tr>
                   </thead>
@@ -568,7 +720,7 @@ export default function App() {
                           />
                         </td>
                         <td className="px-6 py-4 text-zinc-600 font-medium">
-                          {String(tag.rawData[modelColumn] || '')}
+                          {String(tag.rawData[searchColumn] || '')}
                         </td>
                         <td className="px-6 py-4 text-right">
                           <button onClick={() => removeTag(tag.id)} className="p-1.5 text-zinc-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-all">
@@ -583,8 +735,9 @@ export default function App() {
             </div>
           )
         ) : viewMode === 'design' ? (
-          <div className="flex-1 flex flex-col items-center justify-center p-8 overflow-auto bg-zinc-50/50 rounded-3xl border border-zinc-200 shadow-inner relative group/canvas">
-            {/* Toolbar Overlay */}
+          <div className="flex flex-col lg:flex-row gap-8 items-start justify-center">
+            <div className="flex-1 w-full flex flex-col items-center justify-center p-8 overflow-auto bg-zinc-50/50 rounded-3xl border border-zinc-200 shadow-inner relative group/canvas min-h-[850px]">
+              {/* Toolbar Overlay */}
             <div className="absolute top-8 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-white/90 backdrop-blur-md p-2 rounded-2xl border border-zinc-200 shadow-xl z-30 opacity-0 group-hover/canvas:opacity-100 transition-opacity duration-300">
               <div className="px-3 py-1 text-[10px] font-bold text-zinc-500 border-r border-zinc-200 mr-1">
                 561 x 794 px (A5 Portrait)
@@ -698,12 +851,15 @@ export default function App() {
                     setSelectedFieldId={setSelectedFieldId}
                     updateField={updateField}
                     previewTag={previewTag}
+                    updateTagData={updateTagData}
                   />
                 ))}
               </div>
-            {/* Floating Field Settings */}
+            </div>
+
+            {/* Sidebar Field Settings */}
             {selectedField && (
-              <div className="absolute right-12 top-1/2 -translate-y-1/2 w-72 bg-white/95 backdrop-blur-xl rounded-3xl border border-zinc-200 shadow-2xl p-6 space-y-6 animate-in fade-in slide-in-from-right-4 duration-300 z-40">
+              <div className="w-full lg:w-80 bg-white rounded-3xl border border-zinc-200 shadow-xl p-6 space-y-6 animate-in fade-in slide-in-from-right-4 duration-300 z-40 sticky top-8 max-h-[calc(100vh-120px)] overflow-y-auto custom-scrollbar">
                 <div className="flex items-center justify-between border-b border-zinc-100 pb-3">
                   <div className="flex items-center gap-2">
                     <div className="w-2 h-2 rounded-full bg-emerald-500" />
@@ -719,18 +875,62 @@ export default function App() {
 
                 <div className="space-y-5">
                   <div className="space-y-1.5">
-                    <label className="text-[9px] font-black text-zinc-400 uppercase tracking-widest">Excel Mapping</label>
-                    <select 
-                      value={selectedField.mapping || ''}
-                      onChange={(e) => updateField(selectedField.id, { mapping: e.target.value })}
+                    <label className="text-[9px] font-black text-zinc-400 uppercase tracking-widest">Field Label / Static Text</label>
+                    <input 
+                      type="text"
+                      value={selectedField.label}
+                      onChange={(e) => updateField(selectedField.id, { label: e.target.value })}
                       className="w-full px-3 py-2 bg-zinc-50 border border-zinc-100 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
-                    >
-                      <option value="">Default</option>
-                      {excelColumns.map(col => (
-                        <option key={col} value={col}>{col}</option>
-                      ))}
-                    </select>
+                      placeholder="Enter field text..."
+                    />
                   </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-[9px] font-black text-zinc-400 uppercase tracking-widest">Excel Mapping</label>
+                    <div className="flex gap-2">
+                      <select 
+                        value={selectedField.mapping || ''}
+                        onChange={(e) => updateField(selectedField.id, { mapping: e.target.value })}
+                        className="flex-1 px-3 py-2 bg-zinc-50 border border-zinc-100 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+                      >
+                        <option value="">Default</option>
+                        {excelColumns.map(col => (
+                          <option key={col} value={col}>{col}</option>
+                        ))}
+                      </select>
+                      <button
+                        onClick={() => updateField(selectedField.id, { formatAsNumber: !selectedField.formatAsNumber })}
+                        className={cn(
+                          "px-3 py-2 rounded-xl border transition-all flex items-center gap-2 text-[10px] font-bold",
+                          selectedField.formatAsNumber 
+                            ? "bg-emerald-500 border-emerald-600 text-white shadow-sm" 
+                            : "bg-zinc-50 border-zinc-100 text-zinc-400 hover:text-zinc-600"
+                        )}
+                        title="Format with commas"
+                      >
+                        <span className="text-xs">,</span>
+                        {selectedField.formatAsNumber ? "ON" : "OFF"}
+                      </button>
+                    </div>
+                  </div>
+
+                  {selectedField.mapping && previewTag && (
+                    <div className="space-y-2 p-4 bg-emerald-50 rounded-2xl border border-emerald-100 shadow-sm">
+                      <div className="flex items-center justify-between">
+                        <label className="text-[9px] font-black text-emerald-600 uppercase tracking-widest">Edit Data for this Tag</label>
+                        <span className="text-[8px] px-1.5 py-0.5 bg-emerald-100 text-emerald-700 rounded font-bold uppercase">Excel Value</span>
+                      </div>
+                      <textarea 
+                        value={previewTag.rawData[selectedField.mapping] || ''}
+                        onChange={(e) => updateTagData(previewTag.id, selectedField.mapping!, e.target.value)}
+                        className="w-full px-3 py-2 bg-white border border-emerald-200 rounded-xl text-xs font-bold text-emerald-900 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 min-h-[60px] resize-none"
+                        placeholder="Edit excel value..."
+                      />
+                      <p className="text-[9px] text-emerald-600/70 font-medium leading-tight">
+                        Changes here update the actual data for this specific item in your list.
+                      </p>
+                    </div>
+                  )}
 
                   <div className="space-y-1.5">
                     <div className="flex justify-between items-center">
@@ -752,18 +952,6 @@ export default function App() {
                     <input 
                       type="range" min="50" max="561" value={selectedField.width}
                       onChange={(e) => updateField(selectedField.id, { width: parseInt(e.target.value) })}
-                      className="w-full h-1 bg-zinc-100 rounded-lg appearance-none cursor-pointer accent-emerald-500"
-                    />
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <div className="flex justify-between items-center">
-                      <label className="text-[9px] font-black text-zinc-400 uppercase tracking-widest">Line Height</label>
-                      <span className="text-[10px] font-bold text-zinc-900">{selectedField.lineHeight}</span>
-                    </div>
-                    <input 
-                      type="range" min="0.8" max="2.5" step="0.1" value={selectedField.lineHeight}
-                      onChange={(e) => updateField(selectedField.id, { lineHeight: parseFloat(e.target.value) })}
                       className="w-full h-1 bg-zinc-100 rounded-lg appearance-none cursor-pointer accent-emerald-500"
                     />
                   </div>
@@ -810,16 +998,21 @@ export default function App() {
                   <div className="space-y-1.5">
                     <label className="text-[9px] font-black text-zinc-400 uppercase tracking-widest">Alignment</label>
                     <div className="flex bg-zinc-50 p-1 rounded-xl border border-zinc-100">
-                      {(['left', 'center', 'right'] as const).map(align => (
+                      {[
+                        { id: 'left', icon: AlignLeft },
+                        { id: 'center', icon: AlignCenter },
+                        { id: 'right', icon: AlignRight },
+                      ].map(align => (
                         <button
-                          key={align}
-                          onClick={() => updateField(selectedField.id, { textAlign: align })}
+                          key={align.id}
+                          onClick={() => updateField(selectedField.id, { textAlign: align.id as any })}
                           className={cn(
-                            "flex-1 py-1.5 text-[9px] font-black uppercase rounded-lg transition-all",
-                            selectedField.textAlign === align ? "bg-white text-emerald-600 shadow-sm" : "text-zinc-400 hover:text-zinc-600"
+                            "flex-1 py-2 flex justify-center items-center rounded-lg transition-all",
+                            selectedField.textAlign === align.id ? "bg-white text-emerald-600 shadow-sm" : "text-zinc-400 hover:text-zinc-600"
                           )}
+                          title={`Align ${align.id}`}
                         >
-                          {align}
+                          <align.icon size={14} />
                         </button>
                       ))}
                     </div>
@@ -841,22 +1034,30 @@ export default function App() {
         ) : viewMode === 'preview' ? (
           <div className="space-y-6">
             <div className="flex flex-col md:flex-row md:items-center justify-between bg-white p-4 rounded-xl border border-zinc-200 shadow-sm print:hidden gap-4">
-              <div className="flex items-center gap-4">
-                <span className="text-sm font-bold text-zinc-500 uppercase tracking-widest">Print Layout:</span>
-                <div className="flex bg-zinc-50 p-1 rounded-lg border border-zinc-100">
-                  {(['2-in-1', '4-in-1', '6-in-1'] as const).map(layout => (
-                    <button
-                      key={layout}
-                      onClick={() => setPrintLayout(layout)}
-                      className={cn(
-                        "px-4 py-1.5 text-xs font-bold rounded-md transition-all",
-                        printLayout === layout ? "bg-white text-emerald-600 shadow-sm" : "text-zinc-400 hover:text-zinc-600"
-                      )}
-                    >
-                      {layout}
-                    </button>
-                  ))}
-                </div>
+              <div className="flex items-center gap-3">
+                <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">Paper Size</span>
+                <select 
+                  value={paperSize}
+                  onChange={(e) => setPaperSize(e.target.value as any)}
+                  className="bg-zinc-50 border border-zinc-200 rounded-lg px-3 py-1.5 text-xs font-bold text-zinc-900 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all cursor-pointer"
+                >
+                  <option value="A4">A4 (210 x 297mm)</option>
+                  <option value="Letter">Letter (8.5 x 11in)</option>
+                  <option value="Legal">Legal (8.5 x 14in)</option>
+                </select>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">Print Layout</span>
+                <select 
+                  value={printLayout}
+                  onChange={(e) => setPrintLayout(e.target.value as any)}
+                  className="bg-zinc-50 border border-zinc-200 rounded-lg px-3 py-1.5 text-xs font-bold text-zinc-900 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all cursor-pointer"
+                >
+                  <option value="2-in-1">2-in-1 (Landscape)</option>
+                  <option value="4-in-1">4-in-1 (Portrait)</option>
+                  <option value="6-in-1">6-in-1 (Portrait)</option>
+                </select>
               </div>
               
               <div className="flex items-center gap-4">
@@ -874,7 +1075,7 @@ export default function App() {
               </div>
 
               <div className="text-[10px] text-zinc-400 font-medium italic">
-                {printLayout === '2-in-1' ? 'A4 Landscape (2 tags)' : printLayout === '4-in-1' ? 'A4 Portrait (4 tags)' : 'A4 Portrait (6 tags)'}
+                {paperSize} {printLayout === '2-in-1' ? 'Landscape (2 tags)' : printLayout === '4-in-1' ? 'Portrait (4 tags)' : 'Portrait (6 tags)'}
               </div>
             </div>
 
@@ -890,17 +1091,23 @@ export default function App() {
                   const itemsPerPage = printLayout === '2-in-1' ? 2 : printLayout === '4-in-1' ? 4 : 6;
                   const pages = Math.ceil(selectedItems.length / itemsPerPage);
                   
+                  const dimensions = PAPER_DIMENSIONS[paperSize];
+                  const isLandscape = printLayout === '2-in-1';
+                  const pageWidth = isLandscape ? dimensions.height : dimensions.width;
+                  const pageHeight = isLandscape ? dimensions.width : dimensions.height;
+
                   return Array.from({ length: pages }).map((_, pageIndex) => (
                     <div 
                       key={pageIndex} 
                       className={cn(
                         "print-page-container print:break-after-page print:mx-auto print:bg-white bg-white shadow-2xl rounded-sm overflow-hidden print:mb-0 print:shadow-none print:rounded-none flex-shrink-0",
-                        printLayout === '2-in-1' ? "print:h-[210mm] print:w-[297mm] w-[297mm] h-[210mm]" : "print:h-[297mm] print:w-[210mm] w-[210mm] h-[297mm]"
                       )}
                       style={{ 
+                        width: `${pageWidth}px`,
+                        height: `${pageHeight}px`,
                         transform: `scale(${previewZoom})`, 
                         transformOrigin: 'top center',
-                        marginBottom: `calc(${printLayout === '2-in-1' ? '210mm' : '297mm'} * ${previewZoom - 1} + 2rem)`
+                        marginBottom: `calc(${pageHeight}px * ${previewZoom - 1} + 2rem)`
                       }}
                     >
                       <div className={cn(
@@ -914,7 +1121,14 @@ export default function App() {
                           
                           if (!tag) return <div key={offset} className="border border-zinc-50 print:border-none" />;
                           
-                          const scale = printLayout === '2-in-1' ? 1 : printLayout === '4-in-1' ? 0.707 : 0.47;
+                          let scale = 1;
+                          if (printLayout === '2-in-1') {
+                            scale = Math.min(1, (pageWidth / 2) / 561, pageHeight / 794);
+                          } else if (printLayout === '4-in-1') {
+                            scale = Math.min((pageWidth / 2) / 561, (pageHeight / 2) / 794);
+                          } else if (printLayout === '6-in-1') {
+                            scale = Math.min((pageWidth / 2) / 561, (pageHeight / 3) / 794);
+                          }
                           
                           return (
                             <div 
@@ -944,17 +1158,43 @@ export default function App() {
       <style dangerouslySetInnerHTML={{ __html: `
         @media print {
           body { background: white !important; margin: 0 !important; padding: 0 !important; }
-          @page { size: A4; margin: 0; }
+          @page { size: ${paperSize} ${printLayout === '2-in-1' ? 'landscape' : 'portrait'}; margin: 0; }
           .print-hidden { display: none !important; }
         }
       `}} />
+        </div>
+      </div>
+
+      {/* Taskbar */}
+      <div className="absolute bottom-0 left-0 right-0 h-12 bg-black/40 backdrop-blur-xl border-t border-white/10 flex items-center justify-between px-6 print:hidden">
+        <div className="flex items-center gap-4">
+          <div className="w-8 h-8 rounded-lg bg-emerald-500 flex items-center justify-center shadow-lg hover:scale-110 transition-transform cursor-pointer">
+            <FileSpreadsheet size={18} className="text-white" />
+          </div>
+          <div className="h-6 w-[1px] bg-white/10" />
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center hover:bg-white/10 transition-colors cursor-pointer">
+              <ImageIcon size={16} className="text-white/60" />
+            </div>
+            <div className="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center hover:bg-white/10 transition-colors cursor-pointer">
+              <Settings2 size={16} className="text-white/60" />
+            </div>
+          </div>
+        </div>
+        <div className="flex items-center gap-4 text-[10px] font-bold text-white/60 uppercase tracking-widest">
+          <div className="flex flex-col items-end leading-none">
+            <span>{new Date().toLocaleDateString([], { month: 'short', day: 'numeric' })}</span>
+            <span className="mt-1">{new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
 
 function CustomPriceTag({ tag, templateImage, fieldConfigs }: { tag: PriceTagData, templateImage: string, fieldConfigs: FieldConfig[] }) {
   return (
-    <div className="relative overflow-hidden bg-white shadow-sm" style={{ width: '148.5mm', height: '210mm' }}>
+    <div className="relative overflow-hidden bg-white shadow-sm" style={{ width: '561px', height: '794px' }}>
       <img src={templateImage} className="absolute inset-0 w-full h-full object-cover" alt="Template" />
       {fieldConfigs.map(field => {
         let value = '';
@@ -964,24 +1204,37 @@ function CustomPriceTag({ tag, templateImage, fieldConfigs }: { tag: PriceTagDat
           rawValue = String(tag.rawData[field.mapping] || '');
         }
 
-        if (field.label.toLowerCase().includes('srp')) value = formatCurrency(rawValue);
-        else if (field.label.toLowerCase().includes('downpayment')) value = formatNumber(rawValue);
-        else value = rawValue;
+        const labelLower = field.label.toLowerCase();
+        const shouldFormat = field.formatAsNumber || 
+                            labelLower.includes('srp') || 
+                            labelLower.includes('down') || 
+                            labelLower.includes('price') || 
+                            labelLower.includes('amount') ||
+                            labelLower.includes('cash') ||
+                            labelLower.includes('total') ||
+                            labelLower.includes('monthly');
+
+        if (shouldFormat) {
+          if (labelLower.includes('srp')) value = formatCurrency(rawValue);
+          else value = formatNumber(rawValue);
+        } else {
+          value = rawValue;
+        }
         
         return (
           <div 
             key={field.id}
-            className="absolute leading-none whitespace-pre-wrap break-words"
+            className="absolute leading-none whitespace-pre-wrap break-words p-0"
             style={{ 
               left: `${field.x}px`, 
-              top: `${field.y}px`, 
+              top: `${field.y - 28}px`, 
               width: `${field.width}px`,
               fontSize: `${field.fontSize}px`, 
               color: field.color, 
               fontWeight: field.fontWeight,
               textAlign: field.textAlign,
-              lineHeight: field.lineHeight,
-              transform: `rotate(${field.rotation}deg)`,
+              lineHeight: field.lineHeight || 1,
+              transform: `rotate(${field.rotation}deg) translateY(${field.vOffset || 0}px)`,
             }}
           >
             {value}
@@ -994,7 +1247,7 @@ function CustomPriceTag({ tag, templateImage, fieldConfigs }: { tag: PriceTagDat
 
 function DefaultPriceTag({ tag }: { tag: PriceTagData }) {
   return (
-    <div className="w-full h-full flex flex-col bg-white overflow-hidden relative p-4 print:p-0" style={{ minHeight: '210mm' }}>
+    <div className="flex flex-col bg-white overflow-hidden relative p-4 print:p-0" style={{ width: '561px', height: '794px' }}>
       <div className="flex-1 flex flex-col m-2 relative z-0 items-center justify-center border-2 border-dashed rounded-xl" style={{ borderColor: '#f4f4f5' }}>
         <p className="font-bold text-xs uppercase tracking-widest" style={{ color: '#a1a1aa' }}>Custom Template Required</p>
         <p className="text-[10px] mt-1" style={{ color: '#d4d4d8' }}>Design your template to see data here</p>
