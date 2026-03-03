@@ -515,41 +515,14 @@ export default function App() {
   const selectedField = fieldConfigs.find(f => f.id === selectedFieldId);
 
   return (
-    <div className="min-h-screen bg-[#121212] bg-[radial-gradient(circle_at_50%_50%,#2a2a2a_0%,#121212_100%)] p-4 md:p-8 font-sans text-zinc-900 flex items-center justify-center overflow-hidden print:bg-white print:p-0">
-      {/* Window Container */}
-      <div className="w-full max-w-7xl h-[90vh] bg-zinc-50 rounded-2xl shadow-2xl border border-white/10 flex flex-col overflow-hidden animate-in fade-in zoom-in duration-500 print:h-auto print:rounded-none print:shadow-none print:border-none print:block">
-        {/* Title Bar */}
-        <div className="h-12 bg-zinc-100 border-b border-zinc-200 flex items-center justify-between px-4 shrink-0 select-none print:hidden">
-          <div className="flex items-center gap-2">
-            <div className="flex gap-1.5">
-              <div className="w-3 h-3 rounded-full bg-[#ff5f57] border border-black/10 shadow-inner" />
-              <div className="w-3 h-3 rounded-full bg-[#febc2e] border border-black/10 shadow-inner" />
-              <div className="w-3 h-3 rounded-full bg-[#28c840] border border-black/10 shadow-inner" />
-            </div>
-            <div className="ml-4 flex items-center gap-2">
-              <FileSpreadsheet size={16} className="text-emerald-600" />
-              <span className="text-[10px] font-black text-zinc-500 uppercase tracking-[0.2em]">EMCOR Price Tag Generator v1.0</span>
-            </div>
-          </div>
-          <div className="flex items-center gap-4">
-             <div className="h-4 w-[1px] bg-zinc-300" />
-             <div className="flex items-center gap-3 text-zinc-400">
-               <Minus size={14} className="hover:text-zinc-600 transition-colors cursor-pointer" />
-               <Square size={12} className="hover:text-zinc-600 transition-colors cursor-pointer" />
-               <X size={14} className="hover:text-red-500 transition-colors cursor-pointer" />
-             </div>
-          </div>
+    <div className="min-h-screen bg-zinc-50 p-4 md:p-8 font-sans text-zinc-900 print:bg-white print:p-0">
+      {/* Header */}
+      <header className="max-w-6xl mx-auto mb-8 flex flex-col md:flex-row md:items-center justify-between gap-4 print:hidden">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight text-zinc-900">EMCOR Price Tag Generator</h1>
+          <p className="text-zinc-500 mt-1">Upload Excel data and customize your tag template.</p>
         </div>
-
-        {/* Window Content */}
-        <div className="flex-1 overflow-auto p-6 md:p-8 print:p-0 print:overflow-visible">
-          {/* Header */}
-          <header className="mb-8 flex flex-col md:flex-row md:items-center justify-between gap-4 print:hidden">
-            <div>
-              <h1 className="text-3xl font-bold tracking-tight text-zinc-900">EMCOR Price Tag Generator</h1>
-              <p className="text-zinc-500 mt-1">Upload Excel data and customize your tag template.</p>
-            </div>
-            <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3">
           <button
             onClick={() => templateInputRef.current?.click()}
             className="flex items-center gap-2 px-4 py-2 bg-white border border-zinc-200 rounded-lg hover:bg-zinc-50 transition-colors text-sm font-medium shadow-sm"
@@ -579,7 +552,7 @@ export default function App() {
       </header>
 
       {/* Controls */}
-      <div className="mb-6 flex flex-col gap-4 print:hidden">
+      <div className="max-w-6xl mx-auto mb-6 flex flex-col gap-4 print:hidden">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             {tags.length > 0 && (
@@ -646,7 +619,7 @@ export default function App() {
       </div>
 
       {/* Main Content Area */}
-      <main>
+      <main className="max-w-6xl mx-auto">
         {viewMode === 'list' ? (
           tags.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-20 border-2 border-dashed border-zinc-200 rounded-2xl bg-white print:hidden">
@@ -1162,32 +1135,6 @@ export default function App() {
           .print-hidden { display: none !important; }
         }
       `}} />
-        </div>
-      </div>
-
-      {/* Taskbar */}
-      <div className="absolute bottom-0 left-0 right-0 h-12 bg-black/40 backdrop-blur-xl border-t border-white/10 flex items-center justify-between px-6 print:hidden">
-        <div className="flex items-center gap-4">
-          <div className="w-8 h-8 rounded-lg bg-emerald-500 flex items-center justify-center shadow-lg hover:scale-110 transition-transform cursor-pointer">
-            <FileSpreadsheet size={18} className="text-white" />
-          </div>
-          <div className="h-6 w-[1px] bg-white/10" />
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center hover:bg-white/10 transition-colors cursor-pointer">
-              <ImageIcon size={16} className="text-white/60" />
-            </div>
-            <div className="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center hover:bg-white/10 transition-colors cursor-pointer">
-              <Settings2 size={16} className="text-white/60" />
-            </div>
-          </div>
-        </div>
-        <div className="flex items-center gap-4 text-[10px] font-bold text-white/60 uppercase tracking-widest">
-          <div className="flex flex-col items-end leading-none">
-            <span>{new Date().toLocaleDateString([], { month: 'short', day: 'numeric' })}</span>
-            <span className="mt-1">{new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-          </div>
-        </div>
-      </div>
     </div>
   );
 }
