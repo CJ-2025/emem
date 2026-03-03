@@ -216,6 +216,7 @@ export default function App() {
   const [paperSize, setPaperSize] = useState<'A4' | 'Letter' | 'Legal'>('A4');
   const [previewZoom, setPreviewZoom] = useState(0.6);
   const [searchColumn, setSearchColumn] = useState<string>('');
+  const [fillMode, setFillMode] = useState(true);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   const templateInputRef = useRef<HTMLInputElement>(null);
@@ -287,42 +288,54 @@ export default function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [viewMode, selectedFieldId, fieldConfigs]);
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const data = new Uint8Array(event.target?.result as ArrayBuffer);
+    const allNewTags: PriceTagData[] = [];
+    const allColumns = new Set<string>(excelColumns);
+
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      const data = await file.arrayBuffer();
       const workbook = XLSX.read(data, { type: 'array' });
       const firstSheetName = workbook.SheetNames[0];
       const worksheet = workbook.Sheets[firstSheetName];
       const jsonData = XLSX.utils.sheet_to_json(worksheet) as any[];
 
-      // Extract columns from the first row
       if (jsonData.length > 0) {
-        const columns = Object.keys(jsonData[0]);
-        setExcelColumns(columns);
-        
-        // Set default search column
-        const defaultCol = columns.find(col => 
-          col.toLowerCase() === 'item model' || 
-          col.toLowerCase().includes('model')
-        ) || columns[0] || '';
-        setSearchColumn(defaultCol);
+        Object.keys(jsonData[0]).forEach(col => allColumns.add(col));
       }
 
-      const newTags: PriceTagData[] = jsonData.map((row) => ({
+      const fileTags: PriceTagData[] = jsonData.map((row) => ({
         id: crypto.randomUUID(),
         selected: true,
         rawData: row,
       }));
+      allNewTags.push(...fileTags);
+    }
 
-      setTags(newTags);
-      setSelectedTags(new Set(newTags.map(t => t.id)));
-      setViewMode('list');
-    };
-    reader.readAsArrayBuffer(file);
+    const updatedColumns = Array.from(allColumns);
+    setExcelColumns(updatedColumns);
+    
+    // Set default search column if not already set
+    if (!searchColumn && updatedColumns.length > 0) {
+      const defaultCol = updatedColumns.find(col => 
+        col.toLowerCase() === 'item model' || 
+        col.toLowerCase().includes('model')
+      ) || updatedColumns[0] || '';
+      setSearchColumn(defaultCol);
+    }
+
+    const finalTags = [...tags, ...allNewTags];
+    setTags(finalTags);
+    
+    // Update selected tags to include new ones
+    const newSelectedTags = new Set(selectedTags);
+    allNewTags.forEach(t => newSelectedTags.add(t.id));
+    setSelectedTags(newSelectedTags);
+    
+    setViewMode('list');
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
@@ -427,11 +440,18 @@ export default function App() {
   };
 
   const handleDownloadPDF = async () => {
-    if (selectedTags.size === 0) return;
-    
-    if (viewMode !== 'preview') {
-      alert("Please switch to 'Preview' mode first to download PDF.");
+    const selectedItems = tags.filter(t => selectedTags.has(t.id));
+    if (selectedItems.length === 0) {
+      alert("No items selected for PDF generation. Please select items from the list.");
       return;
+    }
+    
+    // Automatically switch to preview mode if not already there
+    const originalViewMode = viewMode;
+    if (viewMode !== 'preview') {
+      setViewMode('preview');
+      // Wait longer if we had to switch modes to ensure everything renders
+      await new Promise(resolve => setTimeout(resolve, 1000));
     }
 
     setIsDownloading(true);
@@ -442,7 +462,7 @@ export default function App() {
     setPreviewZoom(1);
     
     // Wait for React to re-render and for any layout shifts to settle
-    await new Promise(resolve => setTimeout(resolve, 500));
+    await new Promise(resolve => setTimeout(resolve, 800));
     
     try {
       // Scroll to top to ensure html2canvas captures correctly
@@ -466,7 +486,7 @@ export default function App() {
       const pageElements = document.querySelectorAll('.print-page-container');
       
       if (pageElements.length === 0) {
-        throw new Error("No preview pages found.");
+        throw new Error("No preview pages found in the document. Please ensure you are in 'Preview' mode.");
       }
 
       const dimensions = PAPER_DIMENSIONS[paperSize];
@@ -479,7 +499,7 @@ export default function App() {
         const element = pageElements[i] as HTMLElement;
         
         const canvas = await html2canvas(element, {
-          scale: 3, // Even higher quality
+          scale: 2, // Slightly lower scale for better performance/reliability
           useCORS: true,
           logging: false,
           backgroundColor: '#ffffff',
@@ -490,17 +510,18 @@ export default function App() {
           windowHeight: canvasHeight
         });
         
-        const imgData = canvas.toDataURL('image/jpeg', 1.0);
-        pdf.addImage(imgData, 'JPEG', 0, 0, pageWidth, pageHeight, undefined, 'SLOW');
+        const imgData = canvas.toDataURL('image/jpeg', 0.95);
+        pdf.addImage(imgData, 'JPEG', 0, 0, pageWidth, pageHeight, undefined, 'FAST');
       }
 
       pdf.save(`EMCOR-Price-Tags-${new Date().getTime()}.pdf`);
     } catch (error) {
       console.error("PDF Generation Error:", error);
-      alert("Failed to generate PDF. Please ensure you are in 'Preview' mode and try again.");
+      alert(`Failed to generate PDF: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
       setPreviewZoom(originalZoom);
       setIsDownloading(false);
+      // We stay in preview mode as it's where the user can see what was generated
     }
   };
 
@@ -546,7 +567,7 @@ export default function App() {
             <Upload size={16} />
             Upload Excel
           </button>
-          <input type="file" ref={fileInputRef} onChange={handleFileUpload} accept=".xlsx, .xls, .csv" className="hidden" />
+          <input type="file" ref={fileInputRef} onChange={handleFileUpload} accept=".xlsx, .xls, .csv" multiple className="hidden" />
           <input type="file" ref={templateInputRef} onChange={handleTemplateUpload} accept="image/*" className="hidden" />
         </div>
       </header>
@@ -1047,6 +1068,21 @@ export default function App() {
                 <span className="text-xs font-bold text-zinc-400 w-8">{Math.round(previewZoom * 100)}%</span>
               </div>
 
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setFillMode(!fillMode)}
+                  className={cn(
+                    "flex items-center gap-2 px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all",
+                    fillMode 
+                      ? "bg-emerald-600 text-white shadow-md" 
+                      : "bg-zinc-100 text-zinc-400 hover:bg-zinc-200"
+                  )}
+                >
+                  {fillMode ? <Maximize2 size={12} /> : <Square size={12} />}
+                  {fillMode ? 'Fill Mode: ON' : 'Fill Mode: OFF'}
+                </button>
+              </div>
+
               <div className="text-[10px] text-zinc-400 font-medium italic">
                 {paperSize} {printLayout === '2-in-1' ? 'Landscape (2 tags)' : printLayout === '4-in-1' ? 'Portrait (4 tags)' : 'Portrait (6 tags)'}
               </div>
@@ -1084,7 +1120,7 @@ export default function App() {
                       }}
                     >
                       <div className={cn(
-                        "grid h-full w-full",
+                        "grid h-full w-full gap-0",
                         printLayout === '2-in-1' ? "grid-cols-2" : "grid-cols-2 grid-rows-2",
                         printLayout === '6-in-1' && "grid-rows-3"
                       )}>
@@ -1092,23 +1128,34 @@ export default function App() {
                           const tagIndex = pageIndex * itemsPerPage + offset;
                           const tag = selectedItems[tagIndex];
                           
-                          if (!tag) return <div key={offset} className="border border-zinc-50 print:border-none" />;
+                          if (!tag) return <div key={offset} className="print:border-none" />;
                           
-                          let scale = 1;
-                          if (printLayout === '2-in-1') {
-                            scale = Math.min(1, (pageWidth / 2) / 561, pageHeight / 794);
-                          } else if (printLayout === '4-in-1') {
-                            scale = Math.min((pageWidth / 2) / 561, (pageHeight / 2) / 794);
-                          } else if (printLayout === '6-in-1') {
-                            scale = Math.min((pageWidth / 2) / 561, (pageHeight / 3) / 794);
+                          let scaleX = 1;
+                          let scaleY = 1;
+                          const cols = 2;
+                          const rows = printLayout === '2-in-1' ? 1 : (printLayout === '4-in-1' ? 2 : 3);
+                          const cellWidth = pageWidth / cols;
+                          const cellHeight = pageHeight / rows;
+
+                          if (fillMode) {
+                            scaleX = cellWidth / 561;
+                            scaleY = cellHeight / 794;
+                          } else {
+                            const scale = Math.min(cellWidth / 561, cellHeight / 794);
+                            scaleX = scale;
+                            scaleY = scale;
+                            if (printLayout === '2-in-1') {
+                              scaleX = Math.min(1, scaleX);
+                              scaleY = Math.min(1, scaleY);
+                            }
                           }
                           
                           return (
                             <div 
                               key={tag.id} 
-                              className="relative border border-zinc-50 print:border-none overflow-hidden flex items-center justify-center bg-white"
+                              className="relative print:border-none overflow-hidden flex items-center justify-center bg-white"
                             >
-                              <div style={{ transform: `scale(${scale})`, transformOrigin: 'center' }}>
+                              <div style={{ transform: `scale(${scaleX}, ${scaleY})`, transformOrigin: 'center' }}>
                                 {templateImage ? (
                                   <CustomPriceTag tag={tag} templateImage={templateImage} fieldConfigs={fieldConfigs} />
                                 ) : (
@@ -1174,7 +1221,7 @@ function CustomPriceTag({ tag, templateImage, fieldConfigs }: { tag: PriceTagDat
             className="absolute leading-none whitespace-pre-wrap break-words p-0"
             style={{ 
               left: `${field.x}px`, 
-              top: `${field.y - 28}px`, 
+              top: `${field.y}px`, 
               width: `${field.width}px`,
               fontSize: `${field.fontSize}px`, 
               color: field.color, 
