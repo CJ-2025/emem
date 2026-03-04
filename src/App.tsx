@@ -1408,7 +1408,7 @@ function CustomPriceTag({ tag, templateImage, fieldConfigs }: { tag: PriceTagDat
             className="absolute"
             style={{ 
               left: `${field.x}px`, 
-              top: `${field.y - (field.fontSize > 100 ? 40 : (field.fontSize >= 30 ? 30 : 10))}px`, 
+              top: `${field.y - (field.fontSize > 100 ? 60 : (field.fontSize >= 30 ? 30 : 10))}px`, 
               width: `${field.width}px`,
             }}
           >
