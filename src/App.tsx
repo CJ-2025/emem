@@ -908,8 +908,17 @@ export default function App() {
                   Insert Merge Field
                 </button>
                 <div className="absolute top-full left-0 mt-2 w-56 bg-white rounded-2xl border border-zinc-200 shadow-2xl opacity-0 invisible group-hover/dropdown:opacity-100 group-hover/dropdown:visible transition-all duration-200 z-50 p-2">
+                  <div className="px-3 py-2 text-[9px] font-black text-zinc-400 uppercase tracking-widest border-b border-zinc-50 mb-1">Actions</div>
+                  <button
+                    onClick={() => addField("Double click to edit static text")}
+                    className="w-full text-left px-3 py-2 hover:bg-emerald-50 rounded-lg text-xs font-bold text-emerald-600 transition-colors flex items-center gap-2"
+                  >
+                    <Type size={14} />
+                    Add Static Text
+                  </button>
+                  
                   {excelColumns.length > 0 ? (
-                    <div className="max-h-64 overflow-y-auto">
+                    <div className="max-h-64 overflow-y-auto mt-1">
                       <div className="px-3 py-2 text-[9px] font-black text-zinc-400 uppercase tracking-widest border-b border-zinc-50 mb-1">Excel Columns</div>
                       {excelColumns.map(col => (
                         <button
@@ -1051,7 +1060,7 @@ export default function App() {
                         onChange={(e) => updateField(selectedField.id, { mapping: e.target.value })}
                         className="flex-1 px-3 py-2 bg-zinc-50 border border-zinc-100 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
                       >
-                        <option value="">Default</option>
+                        <option value="">Static Text (No Mapping)</option>
                         {excelColumns.map(col => (
                           <option key={col} value={col}>{col}</option>
                         ))}
@@ -1071,6 +1080,18 @@ export default function App() {
                       </button>
                     </div>
                   </div>
+
+                  {!selectedField.mapping && (
+                    <div className="space-y-2 p-4 bg-zinc-50 rounded-2xl border border-zinc-100 shadow-sm">
+                      <div className="flex items-center justify-between">
+                        <label className="text-[9px] font-black text-zinc-400 uppercase tracking-widest">Static Content</label>
+                        <span className="text-[8px] px-1.5 py-0.5 bg-zinc-200 text-zinc-600 rounded font-bold uppercase">Global</span>
+                      </div>
+                      <p className="text-[10px] text-zinc-500 font-medium leading-tight">
+                        This text is "Static". It will appear exactly as typed on every single price tag in your list.
+                      </p>
+                    </div>
+                  )}
 
                   {selectedField.mapping && previewTag && (
                     <div className="space-y-2 p-4 bg-emerald-50 rounded-2xl border border-emerald-100 shadow-sm">
@@ -1360,6 +1381,8 @@ function CustomPriceTag({ tag, templateImage, fieldConfigs }: { tag: PriceTagDat
         
         if (field.mapping && tag.rawData) {
           rawValue = String(tag.rawData[field.mapping] || '');
+        } else {
+          rawValue = field.label;
         }
 
         const labelLower = field.label.toLowerCase();
