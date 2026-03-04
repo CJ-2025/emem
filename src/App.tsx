@@ -11,6 +11,8 @@ import { twMerge } from 'tailwind-merge';
 import Draggable from 'react-draggable';
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
+import { Document, Packer, Paragraph, ImageRun, SectionType, PageOrientation } from 'docx';
+import { saveAs } from 'file-saver';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -125,7 +127,7 @@ const DraggableField: React.FC<DraggableFieldProps> = ({
           setSelectedFieldId(field.id);
         }}
       >
-        <div style={{ transform: `rotate(${field.rotation}deg)`, width: '100%', height: '100%' }}>
+        <div style={{ transform: `rotate(${field.rotation}deg)`, transformOrigin: '0 0', width: '100%' }}>
           <div className={cn(
             "drag-handle absolute -top-7 left-0 bg-emerald-500 text-white text-[10px] px-2 py-1 rounded-t-md flex items-center gap-1.5 cursor-move transition-opacity",
             selectedFieldId === field.id ? "opacity-100" : "opacity-0 group-hover/field:opacity-100"
@@ -148,6 +150,8 @@ const DraggableField: React.FC<DraggableFieldProps> = ({
               fontWeight: field.fontWeight,
               textAlign: field.textAlign,
               transform: `translateY(${field.vOffset || 0}px)`,
+              transformOrigin: '0 0',
+              display: 'block'
             }}
             className={cn(
               "whitespace-pre-wrap break-words p-0 transition-all",
@@ -217,10 +221,24 @@ export default function App() {
   const [previewZoom, setPreviewZoom] = useState(0.6);
   const [searchColumn, setSearchColumn] = useState<string>('');
   const [fillMode, setFillMode] = useState(true);
+  const [isDownloadMenuOpen, setIsDownloadMenuOpen] = useState(false);
+  const [isDownloadingWord, setIsDownloadingWord] = useState(false);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   const templateInputRef = useRef<HTMLInputElement>(null);
   const editorRef = useRef<HTMLDivElement>(null);
+  const downloadMenuRef = useRef<HTMLDivElement>(null);
+
+  // Close download menu on click outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (downloadMenuRef.current && !downloadMenuRef.current.contains(event.target as Node)) {
+        setIsDownloadMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   // Load saved design
   useEffect(() => {
@@ -525,6 +543,124 @@ export default function App() {
     }
   };
 
+  const handleDownloadWord = async () => {
+    const selectedItems = tags.filter(t => selectedTags.has(t.id));
+    if (selectedItems.length === 0) {
+      alert("No items selected for Word generation. Please select items from the list.");
+      return;
+    }
+    
+    const originalViewMode = viewMode;
+    if (viewMode !== 'preview') {
+      setViewMode('preview');
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+
+    setIsDownloadingWord(true);
+    const originalZoom = previewZoom;
+    setPreviewZoom(1);
+    await new Promise(resolve => setTimeout(resolve, 800));
+    
+    try {
+      window.scrollTo(0, 0);
+      const pageElements = document.querySelectorAll('.print-page-container');
+      
+      if (pageElements.length === 0) {
+        throw new Error("No preview pages found.");
+      }
+
+      const isLandscape = printLayout === '2-in-1';
+      const dimensions = PAPER_DIMENSIONS[paperSize];
+      const canvasWidth = isLandscape ? dimensions.height : dimensions.width;
+      const canvasHeight = isLandscape ? dimensions.width : dimensions.height;
+
+      const sections = [];
+
+      for (let i = 0; i < pageElements.length; i++) {
+        const element = pageElements[i] as HTMLElement;
+        const canvas = await html2canvas(element, {
+          scale: 2,
+          useCORS: true,
+          logging: false,
+          backgroundColor: '#ffffff',
+          allowTaint: true,
+          scrollX: 0,
+          scrollY: 0,
+          windowWidth: canvasWidth,
+          windowHeight: canvasHeight
+        });
+        
+        const imgData = canvas.toDataURL('image/png');
+        const base64Data = imgData.split(',')[1];
+        const binaryData = atob(base64Data);
+        const arrayBuffer = new ArrayBuffer(binaryData.length);
+        const uint8Array = new Uint8Array(arrayBuffer);
+        for (let j = 0; j < binaryData.length; j++) {
+          uint8Array[j] = binaryData.charCodeAt(j);
+        }
+
+        // Word page size in twips (1/1440 of an inch)
+        // A4: 11906 x 16838
+        const mmToTwips = (mm: number) => Math.round((mm / 25.4) * 1440);
+        
+        const mmDimensions = {
+          'A4': { w: 210, h: 297 },
+          'Letter': { w: 215.9, h: 279.4 },
+          'Legal': { w: 215.9, h: 355.6 }
+        };
+        const currentMM = mmDimensions[paperSize];
+        const pageWidthTwips = mmToTwips(isLandscape ? currentMM.h : currentMM.w);
+        const pageHeightTwips = mmToTwips(isLandscape ? currentMM.w : currentMM.h);
+
+        sections.push({
+          properties: {
+            page: {
+              size: {
+                width: pageWidthTwips,
+                height: pageHeightTwips,
+              },
+              orientation: isLandscape ? PageOrientation.LANDSCAPE : PageOrientation.PORTRAIT,
+              margin: {
+                top: 0,
+                right: 0,
+                bottom: 0,
+                left: 0,
+              },
+            },
+            type: SectionType.NEXT_PAGE,
+          },
+          children: [
+            new Paragraph({
+              children: [
+                new ImageRun({
+                  data: uint8Array,
+                  transformation: {
+                    width: isLandscape ? currentMM.h * 3.78 : currentMM.w * 3.78, // mm to pixels approx
+                    height: isLandscape ? currentMM.w * 3.78 : currentMM.h * 3.78,
+                  },
+                } as any),
+              ],
+            }),
+          ],
+        });
+      }
+
+      const doc = new Document({
+        sections: sections,
+      });
+
+      const blob = await Packer.toBlob(doc);
+      saveAs(blob, `EMCOR-Price-Tags-${new Date().getTime()}.docx`);
+    } catch (error) {
+      console.error("Word Generation Error:", error);
+      alert(`Failed to generate Word document: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setPreviewZoom(originalZoom);
+      setIsDownloadingWord(false);
+      setIsDownloadMenuOpen(false);
+    }
+  };
+
   const filteredTags = tags.filter(tag => {
     if (!searchQuery) return true;
     const searchLower = searchQuery.toLowerCase();
@@ -618,22 +754,50 @@ export default function App() {
           </div>
 
           {selectedTags.size > 0 && (
-            <div className="flex items-center gap-2">
-              <button
-                onClick={handleDownloadPDF}
-                disabled={isDownloading}
-                className={cn(
-                  "flex items-center gap-2 px-6 py-2.5 bg-zinc-900 text-white rounded-full hover:bg-zinc-800 transition-all shadow-lg hover:scale-105 active:scale-95 disabled:opacity-50 disabled:scale-100",
-                  isDownloading && "animate-pulse"
+            <div className="flex items-center gap-2 relative" ref={downloadMenuRef}>
+              <div className="relative">
+                <button
+                  onClick={() => setIsDownloadMenuOpen(!isDownloadMenuOpen)}
+                  disabled={isDownloading || isDownloadingWord}
+                  className={cn(
+                    "flex items-center gap-2 px-6 py-2.5 bg-zinc-900 text-white rounded-full hover:bg-zinc-800 transition-all shadow-lg hover:scale-105 active:scale-95 disabled:opacity-50 disabled:scale-100",
+                    (isDownloading || isDownloadingWord) && "animate-pulse"
+                  )}
+                >
+                  {isDownloading || isDownloadingWord ? (
+                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  ) : (
+                    <Download size={18} />
+                  )}
+                  {isDownloading ? 'Generating PDF...' : isDownloadingWord ? 'Generating Word...' : `Download (${selectedTags.size})`}
+                  <Plus size={14} className={cn("transition-transform", isDownloadMenuOpen ? "rotate-45" : "")} />
+                </button>
+
+                {isDownloadMenuOpen && (
+                  <div className="absolute top-full right-0 mt-2 w-48 bg-white rounded-2xl border border-zinc-200 shadow-2xl z-[100] p-2 animate-in fade-in slide-in-from-top-2 duration-200">
+                    <button
+                      onClick={() => {
+                        handleDownloadPDF();
+                        setIsDownloadMenuOpen(false);
+                      }}
+                      className="w-full flex items-center gap-3 px-4 py-3 hover:bg-zinc-50 rounded-xl text-sm font-bold text-zinc-700 transition-colors"
+                    >
+                      <FileText size={18} className="text-red-500" />
+                      Download as PDF
+                    </button>
+                    <button
+                      onClick={() => {
+                        handleDownloadWord();
+                        setIsDownloadMenuOpen(false);
+                      }}
+                      className="w-full flex items-center gap-3 px-4 py-3 hover:bg-zinc-50 rounded-xl text-sm font-bold text-zinc-700 transition-colors"
+                    >
+                      <FileText size={18} className="text-blue-500" />
+                      Download as Word
+                    </button>
+                  </div>
                 )}
-              >
-                {isDownloading ? (
-                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                ) : (
-                  <Download size={18} />
-                )}
-                {isDownloading ? 'Generating PDF...' : `Download PDF (${selectedTags.size})`}
-              </button>
+              </div>
             </div>
           )}
         </div>
@@ -1218,20 +1382,30 @@ function CustomPriceTag({ tag, templateImage, fieldConfigs }: { tag: PriceTagDat
         return (
           <div 
             key={field.id}
-            className="absolute leading-none whitespace-pre-wrap break-words p-0"
+            className="absolute"
             style={{ 
               left: `${field.x}px`, 
-              top: `${field.y}px`, 
+              top: `${field.y - 28}px`, 
               width: `${field.width}px`,
-              fontSize: `${field.fontSize}px`, 
-              color: field.color, 
-              fontWeight: field.fontWeight,
-              textAlign: field.textAlign,
-              lineHeight: field.lineHeight || 1,
-              transform: `rotate(${field.rotation}deg) translateY(${field.vOffset || 0}px)`,
             }}
           >
-            {value}
+            <div style={{ transform: `rotate(${field.rotation}deg)`, transformOrigin: '0 0' }}>
+              <div 
+                style={{ 
+                  fontSize: `${field.fontSize}px`, 
+                  lineHeight: field.lineHeight || 1,
+                  color: field.color, 
+                  fontWeight: field.fontWeight,
+                  textAlign: field.textAlign,
+                  transform: `translateY(${field.vOffset || 0}px)`,
+                  transformOrigin: '0 0',
+                  display: 'block'
+                }}
+                className="whitespace-pre-wrap break-words p-0"
+              >
+                {value}
+              </div>
+            </div>
           </div>
         );
       })}
