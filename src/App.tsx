@@ -216,13 +216,21 @@ export default function App() {
   const [showGrid, setShowGrid] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [isDownloading, setIsDownloading] = useState(false);
-  const [printLayout, setPrintLayout] = useState<'2-in-1' | '4-in-1' | '6-in-1'>('2-in-1');
+  type PrintLayout = '2-in-1-portrait' | '2-in-1-landscape' | '4-in-1-portrait' | '4-in-1-landscape' | '6-in-1-portrait' | '6-in-1-landscape';
+  const [printLayout, setPrintLayout] = useState<PrintLayout>('2-in-1-landscape');
   const [paperSize, setPaperSize] = useState<'A4' | 'Letter' | 'Legal'>('A4');
   const [previewZoom, setPreviewZoom] = useState(0.6);
   const [searchColumn, setSearchColumn] = useState<string>('');
   const [fillMode, setFillMode] = useState(true);
   const [isDownloadMenuOpen, setIsDownloadMenuOpen] = useState(false);
   const [isDownloadingWord, setIsDownloadingWord] = useState(false);
+  const [importConfig, setImportConfig] = useState<{
+    isOpen: boolean;
+    workbook: XLSX.WorkBook | null;
+    selectedSheet: string;
+    headerRow: number;
+    files: File[];
+  }>({ isOpen: false, workbook: null, selectedSheet: '', headerRow: 1, files: [] });
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   const templateInputRef = useRef<HTMLInputElement>(null);
@@ -310,33 +318,40 @@ export default function App() {
     const files = e.target.files;
     if (!files || files.length === 0) return;
 
-    const allNewTags: PriceTagData[] = [];
+    const file = files[0];
+    const data = await file.arrayBuffer();
+    const workbook = XLSX.read(data, { type: 'array' });
+    
+    setImportConfig({
+      isOpen: true,
+      workbook,
+      selectedSheet: workbook.SheetNames[0],
+      headerRow: 1,
+      files: Array.from(files)
+    });
+  };
+
+  const processExcelImport = async () => {
+    const { workbook, selectedSheet, headerRow } = importConfig;
+    if (!workbook) return;
+
+    const worksheet = workbook.Sheets[selectedSheet];
+    const jsonData = XLSX.utils.sheet_to_json(worksheet, { range: headerRow - 1 }) as any[];
+
     const allColumns = new Set<string>(excelColumns);
-
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      const data = await file.arrayBuffer();
-      const workbook = XLSX.read(data, { type: 'array' });
-      const firstSheetName = workbook.SheetNames[0];
-      const worksheet = workbook.Sheets[firstSheetName];
-      const jsonData = XLSX.utils.sheet_to_json(worksheet) as any[];
-
-      if (jsonData.length > 0) {
-        Object.keys(jsonData[0]).forEach(col => allColumns.add(col));
-      }
-
-      const fileTags: PriceTagData[] = jsonData.map((row) => ({
-        id: crypto.randomUUID(),
-        selected: true,
-        rawData: row,
-      }));
-      allNewTags.push(...fileTags);
+    if (jsonData.length > 0) {
+      Object.keys(jsonData[0]).forEach(col => allColumns.add(col));
     }
+
+    const fileTags: PriceTagData[] = jsonData.map((row) => ({
+      id: crypto.randomUUID(),
+      selected: true,
+      rawData: row,
+    }));
 
     const updatedColumns = Array.from(allColumns);
     setExcelColumns(updatedColumns);
     
-    // Set default search column if not already set
     if (!searchColumn && updatedColumns.length > 0) {
       const defaultCol = updatedColumns.find(col => 
         col.toLowerCase() === 'item model' || 
@@ -345,15 +360,15 @@ export default function App() {
       setSearchColumn(defaultCol);
     }
 
-    const finalTags = [...tags, ...allNewTags];
+    const finalTags = [...tags, ...fileTags];
     setTags(finalTags);
     
-    // Update selected tags to include new ones
     const newSelectedTags = new Set(selectedTags);
-    allNewTags.forEach(t => newSelectedTags.add(t.id));
+    fileTags.forEach(t => newSelectedTags.add(t.id));
     setSelectedTags(newSelectedTags);
     
     setViewMode('list');
+    setImportConfig({ isOpen: false, workbook: null, selectedSheet: '', headerRow: 1, files: [] });
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
@@ -672,9 +687,9 @@ export default function App() {
   const selectedField = fieldConfigs.find(f => f.id === selectedFieldId);
 
   return (
-    <div className="min-h-screen bg-zinc-50 p-4 md:p-8 font-sans text-zinc-900 print:bg-white print:p-0">
+    <div className="min-h-screen bg-zinc-50 p-2 md:p-4 font-sans text-zinc-900 print:bg-white print:p-0">
       {/* Header */}
-      <header className="max-w-6xl mx-auto mb-8 flex flex-col md:flex-row md:items-center justify-between gap-4 print:hidden">
+      <header className="max-w-[1600px] mx-auto mb-8 flex flex-col md:flex-row md:items-center justify-between gap-4 print:hidden">
         <div>
           <h1 className="text-3xl font-bold tracking-tight text-zinc-900">EMCOR Price Tag Generator</h1>
           <p className="text-zinc-500 mt-1">Upload Excel data and customize your tag template.</p>
@@ -709,7 +724,7 @@ export default function App() {
       </header>
 
       {/* Controls */}
-      <div className="max-w-6xl mx-auto mb-6 flex flex-col gap-4 print:hidden">
+      <div className="max-w-[1600px] mx-auto mb-6 flex flex-col gap-4 print:hidden">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             {tags.length > 0 && (
@@ -804,7 +819,7 @@ export default function App() {
       </div>
 
       {/* Main Content Area */}
-      <main className="max-w-6xl mx-auto">
+      <main className="max-w-[1600px] mx-auto">
         {viewMode === 'list' ? (
           tags.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-20 border-2 border-dashed border-zinc-200 rounded-2xl bg-white print:hidden">
@@ -814,7 +829,7 @@ export default function App() {
           ) : (
             <div className="space-y-4 print:hidden">
               <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-4">
-                <div className="flex flex-1 items-center gap-3 max-w-2xl">
+                <div className="flex flex-1 items-center gap-3">
                   <div className="relative flex-1">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" size={18} />
                     <input
@@ -894,7 +909,7 @@ export default function App() {
           )
         ) : viewMode === 'design' ? (
           <div className="flex flex-col lg:flex-row gap-8 items-start justify-center">
-            <div className="flex-1 w-full flex flex-col items-center justify-center p-8 overflow-auto bg-zinc-50/50 rounded-3xl border border-zinc-200 shadow-inner relative group/canvas min-h-[850px]">
+            <div className="flex-1 w-full flex flex-col items-center justify-center p-4 overflow-auto bg-zinc-50/50 rounded-3xl border border-zinc-200 shadow-inner relative group/canvas min-h-[900px]">
               {/* Toolbar Overlay */}
             <div className="absolute top-8 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-white/90 backdrop-blur-md p-2 rounded-2xl border border-zinc-200 shadow-xl z-30 opacity-0 group-hover/canvas:opacity-100 transition-opacity duration-300">
               <div className="px-3 py-1 text-[10px] font-bold text-zinc-500 border-r border-zinc-200 mr-1">
@@ -1026,7 +1041,7 @@ export default function App() {
 
             {/* Sidebar Field Settings */}
             {selectedField && (
-              <div className="w-full lg:w-80 bg-white rounded-3xl border border-zinc-200 shadow-xl p-6 space-y-6 animate-in fade-in slide-in-from-right-4 duration-300 z-40 sticky top-8 max-h-[calc(100vh-120px)] overflow-y-auto custom-scrollbar">
+              <div className="w-full lg:w-96 bg-white rounded-3xl border border-zinc-200 shadow-xl p-6 space-y-6 animate-in fade-in slide-in-from-right-4 duration-300 z-40 sticky top-8 max-h-[calc(100vh-120px)] overflow-y-auto custom-scrollbar">
                 <div className="flex items-center justify-between border-b border-zinc-100 pb-3">
                   <div className="flex items-center gap-2">
                     <div className="w-2 h-2 rounded-full bg-emerald-500" />
@@ -1233,9 +1248,12 @@ export default function App() {
                   onChange={(e) => setPrintLayout(e.target.value as any)}
                   className="bg-zinc-50 border border-zinc-200 rounded-lg px-3 py-1.5 text-xs font-bold text-zinc-900 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all cursor-pointer"
                 >
-                  <option value="2-in-1">2-in-1 (Landscape)</option>
-                  <option value="4-in-1">4-in-1 (Portrait)</option>
-                  <option value="6-in-1">6-in-1 (Portrait)</option>
+                  <option value="2-in-1-portrait">2-in-1 (Portrait)</option>
+                  <option value="2-in-1-landscape">2-in-1 (Landscape)</option>
+                  <option value="4-in-1-portrait">4-in-1 (Portrait)</option>
+                  <option value="4-in-1-landscape">4-in-1 (Landscape)</option>
+                  <option value="6-in-1-portrait">6-in-1 (Portrait)</option>
+                  <option value="6-in-1-landscape">6-in-1 (Landscape)</option>
                 </select>
               </div>
               
@@ -1269,7 +1287,7 @@ export default function App() {
               </div>
 
               <div className="text-[10px] text-zinc-400 font-medium italic">
-                {paperSize} {printLayout === '2-in-1' ? 'Landscape (2 tags)' : printLayout === '4-in-1' ? 'Portrait (4 tags)' : 'Portrait (6 tags)'}
+                {paperSize} {printLayout.replace(/-/g, ' ')}
               </div>
             </div>
 
@@ -1282,11 +1300,11 @@ export default function App() {
               ) : (
                 (() => {
                   const selectedItems = tags.filter(t => selectedTags.has(t.id));
-                  const itemsPerPage = printLayout === '2-in-1' ? 2 : printLayout === '4-in-1' ? 4 : 6;
+                  const itemsPerPage = printLayout.startsWith('2') ? 2 : printLayout.startsWith('4') ? 4 : 6;
                   const pages = Math.ceil(selectedItems.length / itemsPerPage);
                   
                   const dimensions = PAPER_DIMENSIONS[paperSize];
-                  const isLandscape = printLayout === '2-in-1';
+                  const isLandscape = printLayout.endsWith('landscape');
                   const pageWidth = isLandscape ? dimensions.height : dimensions.width;
                   const pageHeight = isLandscape ? dimensions.width : dimensions.height;
 
@@ -1306,8 +1324,8 @@ export default function App() {
                     >
                       <div className={cn(
                         "grid h-full w-full gap-0",
-                        printLayout === '2-in-1' ? "grid-cols-2" : "grid-cols-2 grid-rows-2",
-                        printLayout === '6-in-1' && "grid-rows-3"
+                        printLayout.startsWith('2') ? "grid-cols-2" : "grid-cols-2 grid-rows-2",
+                        printLayout.startsWith('6') && "grid-rows-3"
                       )}>
                         {Array.from({ length: itemsPerPage }).map((_, offset) => {
                           const tagIndex = pageIndex * itemsPerPage + offset;
@@ -1318,7 +1336,7 @@ export default function App() {
                           let scaleX = 1;
                           let scaleY = 1;
                           const cols = 2;
-                          const rows = printLayout === '2-in-1' ? 1 : (printLayout === '4-in-1' ? 2 : 3);
+                          const rows = printLayout.startsWith('2') ? 1 : (printLayout.startsWith('4') ? 2 : 3);
                           const cellWidth = pageWidth / cols;
                           const cellHeight = pageHeight / rows;
 
@@ -1329,7 +1347,7 @@ export default function App() {
                             const scale = Math.min(cellWidth / 561, cellHeight / 794);
                             scaleX = scale;
                             scaleY = scale;
-                            if (printLayout === '2-in-1') {
+                            if (printLayout.startsWith('2')) {
                               scaleX = Math.min(1, scaleX);
                               scaleY = Math.min(1, scaleY);
                             }
@@ -1360,10 +1378,73 @@ export default function App() {
         ) : null}
       </main>
 
+      {importConfig.isOpen && importConfig.workbook && (
+        <div className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-6">
+            <h2 className="text-xl font-bold text-zinc-900">Configure Import</h2>
+            
+            <div className="space-y-4">
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">Select Sheet</label>
+                <select 
+                  value={importConfig.selectedSheet}
+                  onChange={(e) => setImportConfig({...importConfig, selectedSheet: e.target.value})}
+                  className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl text-sm font-bold"
+                >
+                  {importConfig.workbook.SheetNames.map(name => (
+                    <option key={name} value={name}>{name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">Header Row</label>
+                <input 
+                  type="number"
+                  min="1"
+                  value={importConfig.headerRow}
+                  onChange={(e) => setImportConfig({...importConfig, headerRow: parseInt(e.target.value) || 1})}
+                  className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl text-sm font-bold"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">Detected Columns</label>
+                <div className="flex flex-wrap gap-1.5 p-3 bg-zinc-50 border border-zinc-200 rounded-xl max-h-32 overflow-y-auto">
+                  {(() => {
+                    const worksheet = importConfig.workbook!.Sheets[importConfig.selectedSheet];
+                    const jsonData = XLSX.utils.sheet_to_json(worksheet, { range: importConfig.headerRow - 1, header: 1 }) as any[][];
+                    const headers = jsonData.length > 0 ? jsonData[0] : [];
+                    return headers.length > 0 ? headers.map((h: any, i: number) => (
+                      <span key={i} className="px-2 py-1 bg-white border border-zinc-200 rounded text-[10px] font-bold text-zinc-700">{String(h)}</span>
+                    )) : <span className="text-[10px] text-zinc-400 italic">No columns detected</span>;
+                  })()}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex gap-3 pt-4">
+              <button
+                onClick={() => setImportConfig({...importConfig, isOpen: false})}
+                className="flex-1 px-4 py-2 bg-zinc-100 text-zinc-600 rounded-xl font-bold text-sm hover:bg-zinc-200"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={processExcelImport}
+                className="flex-1 px-4 py-2 bg-emerald-600 text-white rounded-xl font-bold text-sm hover:bg-emerald-700"
+              >
+                Import
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <style dangerouslySetInnerHTML={{ __html: `
         @media print {
           body { background: white !important; margin: 0 !important; padding: 0 !important; }
-          @page { size: ${paperSize} ${printLayout === '2-in-1' ? 'landscape' : 'portrait'}; margin: 0; }
+          @page { size: ${paperSize} ${printLayout.endsWith('landscape') ? 'landscape' : 'portrait'}; margin: 0; }
           .print-hidden { display: none !important; }
         }
       `}} />
