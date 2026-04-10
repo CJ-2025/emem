@@ -502,7 +502,7 @@ export default function App() {
       window.scrollTo(0, 0);
       
       // Determine PDF orientation and dimensions
-      const isLandscape = printLayout === '2-in-1';
+      const isLandscape = printLayout.endsWith('landscape');
       const pdfSize = paperSize.toLowerCase() as any;
       const pdf = new jsPDF(isLandscape ? 'l' : 'p', 'mm', pdfSize);
       
@@ -584,7 +584,7 @@ export default function App() {
         throw new Error("No preview pages found.");
       }
 
-      const isLandscape = printLayout === '2-in-1';
+      const isLandscape = printLayout.endsWith('landscape');
       const dimensions = PAPER_DIMENSIONS[paperSize];
       const canvasWidth = isLandscape ? dimensions.height : dimensions.width;
       const canvasHeight = isLandscape ? dimensions.width : dimensions.height;
@@ -1324,8 +1324,9 @@ export default function App() {
                     >
                       <div className={cn(
                         "grid h-full w-full gap-0",
-                        printLayout.startsWith('2') ? "grid-cols-2" : "grid-cols-2 grid-rows-2",
-                        printLayout.startsWith('6') && "grid-rows-3"
+                        printLayout.startsWith('2') ? "grid-cols-2 grid-rows-1" : 
+                        printLayout.startsWith('4') ? "grid-cols-2 grid-rows-2" : 
+                        "grid-cols-2 grid-rows-3"
                       )}>
                         {Array.from({ length: itemsPerPage }).map((_, offset) => {
                           const tagIndex = pageIndex * itemsPerPage + offset;
@@ -1335,7 +1336,7 @@ export default function App() {
                           
                           let scaleX = 1;
                           let scaleY = 1;
-                          const cols = 2;
+                          const cols = printLayout.startsWith('2') ? 2 : 2;
                           const rows = printLayout.startsWith('2') ? 1 : (printLayout.startsWith('4') ? 2 : 3);
                           const cellWidth = pageWidth / cols;
                           const cellHeight = pageHeight / rows;
@@ -1529,13 +1530,13 @@ function DefaultPriceTag({ tag }: { tag: PriceTagData }) {
 }
 
 function formatCurrency(val: string | number) {
-  const num = typeof val === 'string' ? parseFloat(val.replace(/,/g, '')) : val;
+  const num = typeof val === 'string' ? parseFloat(val.replace(/[ ,]/g, '')) : val;
   if (isNaN(num as number)) return String(val);
   return new Intl.NumberFormat('en-PH', { style: 'decimal', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(num as number);
 }
 
 function formatNumber(val: string | number) {
-  const num = typeof val === 'string' ? parseFloat(val.replace(/,/g, '')) : val;
+  const num = typeof val === 'string' ? parseFloat(val.replace(/[ ,]/g, '')) : val;
   if (isNaN(num as number)) return String(val);
   return new Intl.NumberFormat('en-PH', { style: 'decimal', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(num as number);
 }
