@@ -457,6 +457,7 @@ export default function App() {
 
   const clearAll = () => {
     setTags([]);
+    setSelectedTags(new Set());
   };
 
   const addEmptyTag = () => {
