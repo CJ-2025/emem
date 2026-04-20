@@ -5,7 +5,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import * as XLSX from 'xlsx';
-import { Upload, Printer, FileSpreadsheet, Trash2, Plus, Download, Image as ImageIcon, Settings2, Move, Check, Type, Search, FileText, AlignLeft, AlignCenter, AlignRight, X, Minus, Square, Maximize2 } from 'lucide-react';
+import { Upload, Printer, FileSpreadsheet, Trash2, Plus, Download, Image as ImageIcon, Settings2, Move, Check, Type, Search, FileText, AlignLeft, AlignCenter, AlignRight, X, Minus, Square, Maximize2, Edit2 } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import Draggable from 'react-draggable';
@@ -222,6 +222,8 @@ export default function App() {
   const [previewZoom, setPreviewZoom] = useState(0.6);
   const [searchColumn, setSearchColumn] = useState<string>('');
   const [fillMode, setFillMode] = useState(true);
+  const [editingTagId, setEditingTagId] = useState<string | null>(null);
+  const [editingTagData, setEditingTagData] = useState<Record<string, any> | null>(null);
   const [isDownloadMenuOpen, setIsDownloadMenuOpen] = useState(false);
   const [isDownloadingWord, setIsDownloadingWord] = useState(false);
   const [importConfig, setImportConfig] = useState<{
@@ -896,7 +898,13 @@ export default function App() {
                         <td className="px-6 py-4 text-zinc-600 font-medium">
                           {String(tag.rawData[searchColumn] || '')}
                         </td>
-                        <td className="px-6 py-4 text-right">
+                        <td className="px-6 py-4 text-right flex items-center justify-end gap-2">
+                          <button onClick={() => {
+                            setEditingTagId(tag.id);
+                            setEditingTagData({...tag.rawData});
+                          }} className="p-1.5 text-zinc-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-md transition-all">
+                            <Edit2 size={16} />
+                          </button>
                           <button onClick={() => removeTag(tag.id)} className="p-1.5 text-zinc-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-all">
                             <Trash2 size={16} />
                           </button>
@@ -1379,6 +1387,51 @@ export default function App() {
           </div>
         ) : null}
       </main>
+
+      {editingTagId && editingTagData && (() => {
+        return (
+          <div className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg p-6 space-y-6">
+              <div className="flex items-center justify-between">
+                <h2 className="text-lg font-bold text-zinc-900">Item Details</h2>
+                <button onClick={() => {setEditingTagId(null); setEditingTagData(null);}} className="text-zinc-400 hover:text-zinc-600">
+                  <X size={20} />
+                </button>
+              </div>
+              <div className="space-y-2 max-h-[60vh] overflow-y-auto">
+                {Object.entries(editingTagData).map(([key, value]) => (
+                  <div key={key} className="flex justify-between items-center text-sm p-3 bg-zinc-50 rounded-lg">
+                    <span className="font-bold text-zinc-500">{key}:</span>
+                    <input 
+                      value={String(value)}
+                      onChange={(e) => setEditingTagData(prev => prev ? ({...prev, [key]: e.target.value}) : null)}
+                      className="text-right bg-white border border-zinc-200 rounded px-2 py-1 text-zinc-900 focus:ring-2 focus:ring-emerald-500 outline-none"
+                    />
+                  </div>
+                ))}
+              </div>
+              <div className="flex gap-3 pt-4">
+                <button
+                  onClick={() => {setEditingTagId(null); setEditingTagData(null);}}
+                  className="flex-1 px-4 py-2 bg-zinc-100 text-zinc-600 rounded-xl font-bold text-sm hover:bg-zinc-200"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => {
+                    setTags(prev => prev.map(t => t.id === editingTagId ? {...t, rawData: editingTagData} : t));
+                    setEditingTagId(null);
+                    setEditingTagData(null);
+                  }}
+                  className="flex-1 px-4 py-2 bg-emerald-600 text-white rounded-xl font-bold text-sm hover:bg-emerald-700"
+                >
+                  Save
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {importConfig.isOpen && importConfig.workbook && (
         <div className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-4">
